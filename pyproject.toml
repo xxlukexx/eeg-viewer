@@ -22,7 +22,7 @@ test = [
 ]
 
 [project.scripts]
-eeg-viewer = "eegvis_benchmark.app:main"
+eeg-viewer = "eeg_viewer.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

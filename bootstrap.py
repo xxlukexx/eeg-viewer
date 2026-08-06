@@ -27,7 +27,7 @@ def main() -> int:
             [str(python), "-m", "pip", "install", "--upgrade", "pip"]
         )
 
-    marker = VENV / ".eegvis-installed"
+    marker = VENV / ".eeg-viewer-installed"
     project_files = [ROOT / "pyproject.toml"]
     needs_install = not marker.exists() or any(
         path.stat().st_mtime_ns > marker.stat().st_mtime_ns for path in project_files
@@ -37,7 +37,7 @@ def main() -> int:
         subprocess.check_call([str(python), "-m", "pip", "install", "-e", str(ROOT)])
         marker.touch()
 
-    command = [str(python), "-m", "eegvis_benchmark", *sys.argv[1:]]
+    command = [str(python), "-m", "eeg_viewer", *sys.argv[1:]]
     return subprocess.call(command, cwd=ROOT)
 
 

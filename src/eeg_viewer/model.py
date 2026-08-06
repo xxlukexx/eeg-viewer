@@ -225,7 +225,7 @@ class EegDataset:
 
 
 class DatasetViewSource:
-    """Select one segment/series and expose the benchmark's windowed interface."""
+    """Select one segment/series and expose the viewer's windowed interface."""
 
     def __init__(
         self,

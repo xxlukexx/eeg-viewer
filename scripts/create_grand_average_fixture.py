@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 from scipy.io import savemat
 
-from eegvis_benchmark.fieldtrip import read_fieldtrip
+from eeg_viewer.fieldtrip import read_fieldtrip
 
 
 def build_grand_average(

@@ -4,8 +4,8 @@ from pathlib import Path
 
 import numpy as np
 
-from eegvis_benchmark.eeglab import MneRawSignalSource, read_eeglab
-from eegvis_benchmark.model import DatasetKind, DatasetViewSource
+from eeg_viewer.eeglab import MneRawSignalSource, read_eeglab
+from eeg_viewer.model import DatasetKind, DatasetViewSource
 
 
 class FakeRaw:

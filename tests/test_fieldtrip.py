@@ -5,8 +5,8 @@ from pathlib import Path
 import numpy as np
 from scipy.io import savemat
 
-from eegvis_benchmark.fieldtrip import fieldtrip_from_mapping, read_fieldtrip
-from eegvis_benchmark.model import DatasetKind, DatasetViewSource
+from eeg_viewer.fieldtrip import fieldtrip_from_mapping, read_fieldtrip
+from eeg_viewer.model import DatasetKind, DatasetViewSource
 
 
 def _segmented_mapping() -> dict[str, object]:

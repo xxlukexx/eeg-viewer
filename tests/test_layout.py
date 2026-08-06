@@ -4,8 +4,8 @@ from pathlib import Path
 
 import numpy as np
 
-from eegvis_benchmark.layout import grid_layout, parse_fieldtrip_lay, resolve_layout
-from eegvis_benchmark.model import MontageCandidate
+from eeg_viewer.layout import grid_layout, parse_fieldtrip_lay, resolve_layout
+from eeg_viewer.model import MontageCandidate
 
 
 def test_parse_fieldtrip_lay_and_preserve_channel_order(tmp_path: Path) -> None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from eegvis_benchmark.core import (
+from eeg_viewer.core import (
     ArraySignalSource,
     ViewState,
     reduce_ordered_extrema,

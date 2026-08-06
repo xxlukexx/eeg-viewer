@@ -10,10 +10,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pyqtgraph as pg
 from PySide6 import QtCore, QtTest, QtWidgets
 
-from eegvis_benchmark.app import BenchmarkWindow
-from eegvis_benchmark.fieldtrip import fieldtrip_from_mapping
-from eegvis_benchmark.layout import resolve_layout
-from eegvis_benchmark.model import DatasetViewSource
+from eeg_viewer.app import ViewerWindow
+from eeg_viewer.fieldtrip import fieldtrip_from_mapping
+from eeg_viewer.layout import resolve_layout
+from eeg_viewer.model import DatasetViewSource
 
 
 def test_window_switches_views_and_segments(tmp_path: Path, monkeypatch) -> None:
@@ -34,7 +34,7 @@ def test_window_switches_views_and_segments(tmp_path: Path, monkeypatch) -> None
     )
     source = DatasetViewSource(dataset)
     layout = resolve_layout(source.channel_labels, embedded=dataset.montage_candidate)
-    window = BenchmarkWindow(
+    window = ViewerWindow(
         source,
         dataset.metadata,
         resolved_layout=layout,
@@ -92,7 +92,7 @@ def test_window_switches_views_and_segments(tmp_path: Path, monkeypatch) -> None
     assert window.open_button.text().startswith("Open EEG")
     shown_errors: list[str] = []
     monkeypatch.setattr(
-        "eegvis_benchmark.app.prepare_viewer_input",
+        "eeg_viewer.app.prepare_viewer_input",
         lambda path: (_ for _ in ()).throw(ValueError("unsupported test data")),
     )
     monkeypatch.setattr(

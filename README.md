@@ -6,6 +6,12 @@ PyQtGraph with batched waveform geometry and peak-preserving display reduction.
 
 Version 1 deliberately excludes editing, undo/redo, and data export.
 
+This is now a standalone Python project. It has no runtime dependency on the
+MATLAB `eeg_tools` repository from which the original prototype and rendering
+spike were developed. The provisional design notes and measured rendering
+results remain available in [docs/INITIAL_OUTLINE.md](docs/INITIAL_OUTLINE.md)
+and [benchmarks/RESULTS_2026-08-06.md](benchmarks/RESULTS_2026-08-06.md).
+
 ## Supported inputs
 
 - FieldTrip continuous and segmented raw structures;
@@ -128,6 +134,10 @@ hover geometry, trial overview behavior, and headless Qt rendering:
 
 Use `.venv/bin/python` on macOS/Linux.
 
+The same suite runs in GitHub Actions on Windows, macOS, and Linux. Interactive
+release smoke tests are still required because a headless test cannot validate
+the feel of native windowing, mouse input, or every graphics driver.
+
 ## Reproducible local fixtures
 
 Generated participant-derived files remain local and are ignored by Git:
@@ -150,3 +160,10 @@ compatible subject averages and also includes their grand mean.
 
 The scalp view arranges waveform tiles at electrodes; it is not an interpolated
 voltage topomap.
+
+## Project provenance
+
+Version 1 was extracted from the rendering work originally developed alongside
+`ECKEEGVis.m` in `eeg_tools`. The source relationship, extraction commits, and
+data-handling boundaries are recorded in
+[docs/PROVENANCE.md](docs/PROVENANCE.md). No participant EEG data are committed.

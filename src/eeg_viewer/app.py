@@ -1,4 +1,4 @@
-"""Interactive PySide6/PyQtGraph EEG rendering benchmark."""
+"""Interactive PySide6/PyQtGraph EEG viewer."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ from .synthetic import SyntheticConfig, generate_recording
 from .widgets import TrialOverviewWidget
 
 
-LOGGER = logging.getLogger("eegvis_benchmark")
+LOGGER = logging.getLogger("eeg_viewer")
 EEG_FILE_FILTER = (
     "EEG data (*.mat *.set *.fdt);;FieldTrip MATLAB (*.mat);;"
     "EEGLAB (*.set *.fdt);;All files (*)"
@@ -84,7 +84,7 @@ class NavigationViewBox(pg.ViewBox):
         event.ignore()
 
 
-class BenchmarkWindow(QtWidgets.QMainWindow):
+class ViewerWindow(QtWidgets.QMainWindow):
     def __init__(
         self,
         source: Any,
@@ -422,7 +422,7 @@ class BenchmarkWindow(QtWidgets.QMainWindow):
             QtWidgets.QApplication.restoreOverrideCursor()
             self.open_button.setEnabled(True)
 
-        new_window = BenchmarkWindow(
+        new_window = ViewerWindow(
             prepared.source,
             prepared.metadata,
             resolved_layout=prepared.layout,
@@ -440,9 +440,9 @@ class BenchmarkWindow(QtWidgets.QMainWindow):
         )
         application = QtWidgets.QApplication.instance()
         if application is not None:
-            windows = getattr(application, "_eegvis_windows", [])
+            windows = getattr(application, "_eeg_viewer_windows", [])
             windows.append(new_window)
-            application._eegvis_windows = windows
+            application._eeg_viewer_windows = windows
         new_window.show()
         self.close()
 
@@ -1252,7 +1252,7 @@ def main(argv: list[str] | None = None) -> int:
             else grid_layout(source.channel_labels)
         )
     output = args.output or _default_result_path()
-    window = BenchmarkWindow(
+    window = ViewerWindow(
         source,
         metadata,
         resolved_layout=resolved_layout,
@@ -1267,7 +1267,7 @@ def main(argv: list[str] | None = None) -> int:
         show_developer_controls=args.developer_controls,
     )
     window.show()
-    app._eegvis_windows = [window]
+    app._eeg_viewer_windows = [window]
     exit_code = app.exec()
     if output.exists():
         try:

@@ -9,7 +9,7 @@ import mne
 import numpy as np
 from scipy.io import savemat
 
-from eegvis_benchmark.synthetic import SyntheticConfig, generate_recording
+from eeg_viewer.synthetic import SyntheticConfig, generate_recording
 
 
 LABELS = (

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from eegvis_benchmark.core import reduce_ordered_extrema
-from eegvis_benchmark.geometry import place_waveforms, placements_from_layout
-from eegvis_benchmark.layout import grid_layout
+from eeg_viewer.core import reduce_ordered_extrema
+from eeg_viewer.geometry import place_waveforms, placements_from_layout
+from eeg_viewer.layout import grid_layout
 
 
 def test_tile_geometry_batches_all_channels_and_keeps_extrema() -> None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from eegvis_benchmark.synthetic import SyntheticConfig, generate_recording
+from eeg_viewer.synthetic import SyntheticConfig, generate_recording
 
 
 def test_generator_is_deterministic_and_includes_known_stress_events() -> None:

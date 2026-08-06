@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6 import QtCore, QtTest, QtWidgets
 
-from eegvis_benchmark.widgets import TrialOverviewWidget
+from eeg_viewer.widgets import TrialOverviewWidget
 
 
 def test_trial_overview_click_selects_segment_and_renders() -> None:
