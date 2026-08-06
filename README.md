@@ -161,6 +161,10 @@ compatible subject averages and also includes their grand mean.
 The scalp view arranges waveform tiles at electrodes; it is not an interpolated
 voltage topomap.
 
+## License
+
+EEG Viewer is released under the [MIT License](LICENSE).
+
 ## Project provenance
 
 Version 1 was extracted from the rendering work originally developed alongside
