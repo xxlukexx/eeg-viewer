@@ -24,6 +24,9 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: pyproject.toml
+      - name: Install Linux Qt runtime
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1
       - name: Install viewer and test dependencies
         run: python -m pip install -e ".[test]"
       - name: Run tests
