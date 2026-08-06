@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +7,8 @@ name = "eeg-review-viewer"
 version = "1.0.0"
 description = "Fast read-only viewer for FieldTrip and EEGLAB EEG data"
 requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "mne>=1.10",
     "numpy>=1.26",
