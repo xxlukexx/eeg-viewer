@@ -9,6 +9,56 @@ from numpy.typing import NDArray
 from PySide6 import QtCore, QtGui, QtWidgets
 
 
+class TrialScaleWidget(QtWidgets.QWidget):
+    """Small paper-style time and native-amplitude scale inset."""
+
+    def __init__(self, parent: QtWidgets.QWidget) -> None:
+        super().__init__(parent)
+        self.setFixedSize(190, 88)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.time_seconds = 1.0
+        self.amplitude = 1.0
+        self.unit = "native units"
+        self.time_pixels = 70.0
+        self.amplitude_pixels = 30.0
+
+    def set_scales(
+        self,
+        time_seconds: float,
+        amplitude: float,
+        unit: str,
+        time_pixels: float,
+        amplitude_pixels: float,
+    ) -> None:
+        self.time_seconds = time_seconds
+        self.amplitude = amplitude
+        self.unit = unit
+        self.time_pixels = time_pixels
+        self.amplitude_pixels = amplitude_pixels
+        self.update()
+
+    def paintEvent(self, event: QtGui.QPaintEvent) -> None:  # noqa: N802 - Qt API
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        painter.setPen(QtGui.QPen(QtGui.QColor(112, 126, 145, 180), 1))
+        painter.setBrush(QtGui.QColor(11, 14, 20, 218))
+        painter.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 6, 6)
+
+        painter.setPen(QtGui.QColor(170, 183, 202))
+        painter.drawText(13, 18, "Trial scale")
+        origin_x, origin_y = 20, 62
+        end_x = origin_x + min(100.0, max(0.0, self.time_pixels))
+        end_y = origin_y - min(36.0, max(0.0, self.amplitude_pixels))
+        painter.setPen(QtGui.QPen(QtGui.QColor(220, 230, 240), 1.5))
+        painter.drawLine(QtCore.QPointF(origin_x, end_y), QtCore.QPointF(origin_x, origin_y))
+        painter.drawLine(QtCore.QPointF(origin_x, origin_y), QtCore.QPointF(end_x, origin_y))
+
+        painter.setPen(QtGui.QColor(220, 230, 240))
+        painter.drawText(29, int(end_y + 8), f"{self.amplitude:.3g} {self.unit}")
+        painter.drawText(int(end_x + 8), 67, f"{self.time_seconds:.3g} s")
+        painter.end()
+
+
 class TrialOverviewWidget(QtWidgets.QWidget):
     """Compact clickable artifact density overview with one bar per segment."""
 

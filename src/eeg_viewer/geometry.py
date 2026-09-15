@@ -66,6 +66,7 @@ def place_waveforms(
     placements: tuple[ChannelPlacement, ...],
     *,
     amplitude_spacing: float,
+    sample_range: tuple[int, int] | None = None,
 ) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
     """Map reduced channel traces into small-multiple tiles as one line batch."""
 
@@ -78,8 +79,12 @@ def place_waveforms(
         return x.ravel(), y.ravel()
 
     positions = reduced.sample_positions
-    start = np.nanmin(positions, axis=1)
-    stop = np.nanmax(positions, axis=1)
+    if sample_range is None:
+        start = np.nanmin(positions, axis=1)
+        stop = np.nanmax(positions, axis=1)
+    else:
+        start = np.full(channels, sample_range[0], dtype=np.float32)
+        stop = np.full(channels, sample_range[1] - 1, dtype=np.float32)
     span = np.maximum(stop - start, 1.0)
     for row, placement in enumerate(placements):
         left = placement.center_x - placement.width / 2.0

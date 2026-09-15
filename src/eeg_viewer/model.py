@@ -305,3 +305,63 @@ class DatasetViewSource:
             start_sample,
             stop_sample,
         )
+
+    def read_clean_average(
+        self,
+        channels: Sequence[int] | slice,
+        start_sample: int,
+        stop_sample: int,
+    ) -> FloatArray:
+        """Average unflagged trials on the selected trial's time axis.
+
+        A channel contributes only when it is free of artifacts, interpolation,
+        and cannot-interpolate flags. Missing samples and non-finite values do
+        not contribute; samples with no clean observations remain NaN.
+        """
+
+        if self.dataset.kind != DatasetKind.SEGMENTED:
+            raise ValueError("clean-trial averages require segmented data")
+        selected = np.arange(self.channel_count)[channels]
+        start = max(0, min(int(start_sample), self.sample_count))
+        stop = max(start, min(int(stop_sample), self.sample_count))
+        sums = np.zeros((len(selected), stop - start), dtype=np.float64)
+        counts = np.zeros(sums.shape, dtype=np.int32)
+        flagged = np.zeros((self.channel_count, self.segment_count), dtype=bool)
+        for layer in self.dataset.artifacts.layers:
+            flagged |= layer.mask
+        for mask in (
+            self.dataset.artifacts.interpolated,
+            self.dataset.artifacts.cannot_interpolate,
+        ):
+            if mask is not None:
+                flagged |= mask
+
+        reference_start = self.time_start_seconds
+        for index, segment in enumerate(self.dataset.segments):
+            eligible_rows = np.flatnonzero(~flagged[selected, index])
+            if not eligible_rows.size:
+                continue
+            # Trial samples may differ in both start time and duration. Match
+            # samples by their recorded times rather than by array position.
+            shift = round((reference_start - segment.start_time_seconds) * self.sample_rate_hz)
+            overlap_start = max(start, -shift)
+            overlap_stop = min(stop, segment.sample_count - shift)
+            if overlap_start >= overlap_stop:
+                continue
+            values = np.asarray(
+                self.dataset.signal.read(
+                    index,
+                    self.series_index,
+                    selected[eligible_rows],
+                    overlap_start + shift,
+                    overlap_stop + shift,
+                )
+            )
+            finite = np.isfinite(values)
+            destination = slice(overlap_start - start, overlap_stop - start)
+            sums[eligible_rows, destination] += np.where(finite, values, 0.0)
+            counts[eligible_rows, destination] += finite
+
+        average = np.full(sums.shape, np.nan, dtype=np.float32)
+        np.divide(sums, counts, out=average, where=counts > 0)
+        return average

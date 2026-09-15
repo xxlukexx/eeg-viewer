@@ -22,6 +22,7 @@ from . import __version__
 from .core import (
     ArraySignalSource,
     ViewState,
+    fit_average_to_channel,
     reduce_ordered_extrema,
     stack_for_plot,
 )
@@ -30,9 +31,9 @@ from .eeglab import read_eeglab
 from .geometry import place_waveforms, placements_from_layout
 from .layout import ResolvedLayout, grid_layout, resolve_layout
 from .metrics import MetricRecorder, UpdateMetric
-from .model import DatasetViewSource
+from .model import DatasetKind, DatasetViewSource
 from .synthetic import SyntheticConfig, generate_recording
-from .widgets import TrialOverviewWidget
+from .widgets import TrialOverviewWidget, TrialScaleWidget
 
 
 LOGGER = logging.getLogger("eeg_viewer")
@@ -40,6 +41,19 @@ EEG_FILE_FILTER = (
     "EEG data (*.mat *.set *.fdt);;FieldTrip MATLAB (*.mat);;"
     "EEGLAB (*.set *.fdt);;All files (*)"
 )
+
+
+def _nice_scale_value(target: float) -> float:
+    """Largest 1/2/5 decade step that does not exceed the target."""
+
+    if not math.isfinite(target) or target <= 0:
+        return 1.0
+    decade = 10.0 ** math.floor(math.log10(target))
+    for coefficient in (5.0, 2.0, 1.0):
+        candidate = coefficient * decade
+        if candidate <= target:
+            return candidate
+    return decade
 
 
 @dataclass(frozen=True)
@@ -103,6 +117,10 @@ class ViewerWindow(QtWidgets.QMainWindow):
     ) -> None:
         super().__init__()
         self.source = source
+        self._has_clean_average = (
+            getattr(getattr(source, "dataset", None), "kind", None)
+            == DatasetKind.SEGMENTED
+        )
         self.metadata = metadata
         self.opengl_requested = opengl_requested
         self.show_developer_controls = show_developer_controls
@@ -130,6 +148,8 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self._current_visual_states = ()
         self._last_data = np.empty((0, 0), dtype=np.float32)
         self._last_channel_indices: tuple[int, ...] = ()
+        self._average_cache_key: tuple[Any, ...] | None = None
+        self._average_cache_data: np.ndarray | None = None
         self.setAcceptDrops(True)
 
         renderer = {
@@ -187,10 +207,15 @@ class ViewerWindow(QtWidgets.QMainWindow):
             for layer in getattr(getattr(self.source, "dataset", None), "artifacts", ()).layers
         ] if getattr(self.source, "dataset", None) is not None else []
         artifact_text = ", ".join(artifact_names) if artifact_names else "none imported"
+        average_legend = (
+            '<span style="color:#a776d9">━</span> clean mean (rescaled) &nbsp;&nbsp; '
+            if self._has_clean_average else ""
+        )
         legend = QtWidgets.QLabel(
             '<span style="color:#f0aa3c">■</span> artifact &nbsp;&nbsp; '
             '<span style="color:#46a0f5">■</span> interpolated &nbsp;&nbsp; '
             '<span style="color:#f54b5a">■</span> cannot interpolate &nbsp;&nbsp; '
+            f'{average_legend}'
             f'<span style="color:#8795a8">layers: {artifact_text}</span>'
         )
         legend.setTextFormat(QtCore.Qt.TextFormat.RichText)
@@ -217,6 +242,26 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self.segment_control.setEnabled(segment_count > 1)
         self.segment_control.valueChanged.connect(self._segment_changed)
         controls.addWidget(self.segment_control)
+
+        self.average_alpha_label = QtWidgets.QLabel("Clean-trial average α")
+        self.average_alpha_label.setVisible(self._has_clean_average)
+        controls.addWidget(self.average_alpha_label)
+        self.average_alpha_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.average_alpha_slider.setRange(0, 100)
+        self.average_alpha_slider.setSingleStep(5)
+        self.average_alpha_slider.setPageStep(10)
+        self.average_alpha_slider.setFixedWidth(110)
+        self.average_alpha_slider.setToolTip(
+            "Opacity of the per-channel clean-trial mean; 0 hides it"
+        )
+        self.average_alpha_slider.setValue(50)
+        self.average_alpha_slider.setVisible(self._has_clean_average)
+        self.average_alpha_slider.valueChanged.connect(self._average_alpha_changed)
+        controls.addWidget(self.average_alpha_slider)
+        self.average_alpha_value = QtWidgets.QLabel("0.50")
+        self.average_alpha_value.setMinimumWidth(30)
+        self.average_alpha_value.setVisible(self._has_clean_average)
+        controls.addWidget(self.average_alpha_value)
 
         series_count = int(getattr(self.source, "series_count", 1))
         controls.addWidget(QtWidgets.QLabel("Series"))
@@ -296,13 +341,44 @@ class ViewerWindow(QtWidgets.QMainWindow):
             antialias=False,
             connect="finite",
         )
+        self.average_curve = pg.PlotCurveItem(
+            pen=pg.mkPen((167, 118, 217, 128), width=2.7),
+            # PyQtGraph's OpenGL curve path enables GL_BLEND for antialiased
+            # lines. Without it, every nonzero pen alpha renders fully opaque.
+            antialias=True,
+            connect="finite",
+        )
+        self.average_curve.setZValue(-0.5)
+        self.plot.addItem(self.average_curve)
         self.plot.addItem(self.curve)
+        self.trial_scale = TrialScaleWidget(self.plot)
+        self.trial_scale.raise_()
         self.hover_item = QtWidgets.QGraphicsRectItem()
         self.hover_item.setPen(pg.mkPen((190, 220, 255), width=1.3))
         self.hover_item.setBrush(pg.mkBrush(90, 135, 180, 35))
         self.hover_item.setZValue(-1)
         self.hover_item.hide()
         self.plot.addItem(self.hover_item)
+        self.hover_cursor = QtWidgets.QGraphicsLineItem()
+        self.hover_cursor.setPen(pg.mkPen((247, 194, 93, 220), width=1.2))
+        self.hover_cursor.setZValue(3)
+        self.hover_cursor.setAcceptedMouseButtons(QtCore.Qt.MouseButton.NoButton)
+        self.hover_cursor.hide()
+        self.plot.addItem(self.hover_cursor)
+        self.hover_time_label = pg.TextItem(
+            color=(247, 216, 159),
+            fill=(19, 26, 36, 225),
+            border=pg.mkPen((96, 105, 119), width=0.7),
+            anchor=(0, 0),
+        )
+        font = QtGui.QFont()
+        font.setPointSize(8)
+        self.hover_time_label.textItem.document().setDocumentMargin(1)
+        self.hover_time_label.setFont(font)
+        self.hover_time_label.setZValue(4)
+        self.hover_time_label.setAcceptedMouseButtons(QtCore.Qt.MouseButton.NoButton)
+        self.hover_time_label.hide()
+        self.plot.addItem(self.hover_time_label)
         self._hover_proxy = pg.SignalProxy(
             self.plot.scene().sigMouseMoved,
             rateLimit=30,
@@ -468,6 +544,16 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self._update_mode_chrome()
         self.refresh("view-mode")
 
+    def _average_alpha_changed(self, value: int) -> None:
+        was_visible = self.average_curve.opts["pen"].color().alpha() > 0
+        alpha = value / 100.0
+        self.average_curve.setPen(
+            pg.mkPen((167, 118, 217, round(alpha * 255)), width=2.7)
+        )
+        self.average_alpha_value.setText(f"{alpha:.2f}")
+        if was_visible != (value > 0):
+            self.refresh("average-alpha")
+
     def _segment_changed(self, value: int) -> None:
         if self._updating_controls or not hasattr(self.source, "select_segment"):
             return
@@ -500,6 +586,11 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self.refresh("amplitude-keyboard")
 
     def eventFilter(self, watched: QtCore.QObject, event: QtCore.QEvent) -> bool:  # noqa: N802
+        if (
+            watched is self.plot.viewport()
+            and event.type() == QtCore.QEvent.Type.Leave
+        ):
+            self._hide_channel_hover(reset_label=True)
         is_ours = watched is self or (
             isinstance(watched, QtWidgets.QWidget) and self.isAncestorOf(watched)
         )
@@ -627,8 +718,8 @@ class ViewerWindow(QtWidgets.QMainWindow):
         position = event[0]
         if isinstance(position, (tuple, list)):
             position = position[0]
-        if not self.plot.sceneBoundingRect().contains(position):
-            self.hover_item.hide()
+        if not self.view_box.sceneBoundingRect().contains(position):
+            self._hide_channel_hover(reset_label=True)
             return
         point = self.view_box.mapSceneToView(position)
         channel_index: int | None = None
@@ -662,10 +753,18 @@ class ViewerWindow(QtWidgets.QMainWindow):
                     data_row = None
 
         if channel_index is None or data_row is None:
-            self.hover_item.hide()
-            self.hover_label.setText("Hover over a channel to inspect signal and artifact details.")
+            self._hide_channel_hover(reset_label=True)
             return
         self._show_channel_hover(channel_index, data_row, point, placement)
+
+    def _hide_channel_hover(self, *, reset_label: bool) -> None:
+        self.hover_item.hide()
+        self.hover_cursor.hide()
+        self.hover_time_label.hide()
+        if reset_label:
+            self.hover_label.setText(
+                "Hover over a channel to inspect signal and artifact details."
+            )
 
     def _show_channel_hover(
         self,
@@ -714,23 +813,40 @@ class ViewerWindow(QtWidgets.QMainWindow):
             time_seconds = float(point.x())
             left = float(getattr(self.source, "time_start_seconds", 0.0)) + self.state.start_sample / self.source.sample_rate_hz
             right = float(getattr(self.source, "time_start_seconds", 0.0)) + self.state.stop_sample / self.source.sample_rate_hz
+            if not left <= time_seconds <= right:
+                self._hide_channel_hover(reset_label=True)
+                return
             baseline = len(self._last_channel_indices) - 1 - data_row
-            self.hover_item.setRect(left, baseline - 0.46, max(1e-12, right - left), 0.92)
+            bottom, top = baseline - 0.46, baseline + 0.46
+            self.hover_item.setRect(left, bottom, max(1e-12, right - left), top - bottom)
         else:
+            left = placement.center_x - placement.width / 2
+            right = placement.center_x + placement.width / 2
             fraction = (
-                (float(point.x()) - (placement.center_x - placement.width / 2))
+                (float(point.x()) - left)
                 / max(1e-12, placement.width)
             )
-            sample = self.state.start_sample + int(
+            sample_position = self.state.start_sample + (
                 min(1.0, max(0.0, fraction)) * max(0, values.size - 1)
             )
-            time_seconds = float(getattr(self.source, "time_start_seconds", 0.0)) + sample / self.source.sample_rate_hz
+            time_seconds = (
+                float(getattr(self.source, "time_start_seconds", 0.0))
+                + sample_position / self.source.sample_rate_hz
+            )
+            bottom = placement.center_y - placement.height / 2
+            top = placement.center_y + placement.height / 2
             self.hover_item.setRect(
-                placement.center_x - placement.width / 2,
-                placement.center_y - placement.height / 2,
+                left,
+                bottom,
                 placement.width,
                 placement.height,
             )
+        self.hover_cursor.setLine(float(point.x()), bottom, float(point.x()), top)
+        self.hover_time_label.setText(f"{time_seconds * 1_000:.1f} ms")
+        self.hover_time_label.setAnchor(
+            (1, 0) if float(point.x()) > left + 0.85 * (right - left) else (0, 0)
+        )
+        self.hover_time_label.setPos(float(point.x()), top)
         local_sample = int(
             round(
                 (time_seconds - float(getattr(self.source, "time_start_seconds", 0.0)))
@@ -749,6 +865,8 @@ class ViewerWindow(QtWidgets.QMainWindow):
             f"{cursor_text} &nbsp;·&nbsp; {signal_text}"
         )
         self.hover_item.show()
+        self.hover_cursor.show()
+        self.hover_time_label.show()
 
     def _time_scroll_changed(self, value: int) -> None:
         if self._updating_controls:
@@ -830,6 +948,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
             self._updating_controls = False
 
     def refresh(self, reason: str, *, record: bool = True) -> UpdateMetric:
+        self._hide_channel_hover(reset_label=False)
         self.state.clamp()
         geometry_started = time.perf_counter()
         channel_slice = self.state.channel_slice if self.mode == "chart" else slice(None)
@@ -853,6 +972,29 @@ class ViewerWindow(QtWidgets.QMainWindow):
             start_sample=self.state.start_sample,
             max_time_bins=time_bins,
         )
+        average_x = average_y = np.empty(0, dtype=np.float32)
+        if self._has_clean_average and self.average_alpha_slider.value() > 0:
+            cache_key = (
+                self.source.series_index,
+                self.source.segment_index,
+                self.state.start_sample,
+                self.state.stop_sample,
+                self._last_channel_indices,
+            )
+            if cache_key != self._average_cache_key:
+                self._average_cache_data = self.source.read_clean_average(
+                    channel_slice,
+                    self.state.start_sample,
+                    self.state.stop_sample,
+                )
+                self._average_cache_key = cache_key
+            average_reduced = reduce_ordered_extrema(
+                fit_average_to_channel(self._average_cache_data, half_height=0.42),
+                start_sample=self.state.start_sample,
+                max_time_bins=time_bins,
+            )
+        else:
+            average_reduced = None
         offsets = np.empty(0, dtype=np.float32)
         if self.mode == "chart":
             x, y, offsets = stack_for_plot(
@@ -861,6 +1003,13 @@ class ViewerWindow(QtWidgets.QMainWindow):
                 self.state.amplitude_spacing_uv,
             )
             x += np.float32(getattr(self.source, "time_start_seconds", 0.0))
+            if average_reduced is not None:
+                average_x, average_y, _ = stack_for_plot(
+                    average_reduced,
+                    self.source.sample_rate_hz,
+                    1.0,
+                )
+                average_x += np.float32(self.source.time_start_seconds)
         else:
             placements = self._current_placements or placements_from_layout(
                 self._active_layout()
@@ -869,11 +1018,22 @@ class ViewerWindow(QtWidgets.QMainWindow):
                 reduced,
                 placements,
                 amplitude_spacing=self.state.amplitude_spacing_uv,
+                sample_range=(self.state.start_sample, self.state.stop_sample),
             )
+            if average_reduced is not None:
+                average_x, average_y = place_waveforms(
+                    average_reduced,
+                    placements,
+                    amplitude_spacing=1.0,
+                    sample_range=(self.state.start_sample, self.state.stop_sample),
+                )
         geometry_ms = (time.perf_counter() - geometry_started) * 1_000.0
 
         submit_started = time.perf_counter()
         self.curve.setData(x=x, y=y, connect="finite", skipFiniteCheck=False)
+        self.average_curve.setData(
+            x=average_x, y=average_y, connect="finite", skipFiniteCheck=False
+        )
         if self.mode == "chart":
             time_origin = float(getattr(self.source, "time_start_seconds", 0.0))
             start_seconds = time_origin + self.state.start_sample / self.source.sample_rate_hz
@@ -888,6 +1048,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
         else:
             self.plot.setXRange(0.0, 1.0, padding=0.02)
             self.plot.setYRange(0.0, 1.0, padding=0.02)
+        self._update_trial_scale(len(offsets))
         self._sync_controls()
         submit_ms = (time.perf_counter() - submit_started) * 1_000.0
 
@@ -912,6 +1073,48 @@ class ViewerWindow(QtWidgets.QMainWindow):
             f"{reduced.samples_per_bin} source samples/display bin"
         )
         return metric
+
+    def _update_trial_scale(self, chart_channels: int) -> None:
+        """Show nice-valued scale bars in the display's current pixel scale."""
+
+        window_seconds = max(
+            1.0 / self.source.sample_rate_hz,
+            (self.state.stop_sample - self.state.start_sample) / self.source.sample_rate_hz,
+        )
+        view_width = max(1.0, float(self.view_box.width()))
+        view_height = max(1.0, float(self.view_box.height()))
+        if self.mode == "chart":
+            pixels_per_second = view_width / window_seconds
+            y_span = max(1.4, chart_channels + 0.4)
+            pixels_per_unit = view_height / y_span / self.state.amplitude_spacing_uv
+        else:
+            placements = self._current_placements or placements_from_layout(
+                self._active_layout()
+            )
+            tile = placements[0]
+            pixels_per_second = tile.width * view_width / 1.04 / window_seconds
+            pixels_per_unit = (
+                tile.height * view_height / 1.04 / self.state.amplitude_spacing_uv
+            )
+
+        time_value = _nice_scale_value(68.0 / pixels_per_second)
+        amplitude_value = _nice_scale_value(32.0 / pixels_per_unit)
+        unit = str(self.source.unit)
+        if unit.startswith("native [") and unit.endswith("]"):
+            unit = unit[8:-1]
+        elif unit == "native units":
+            unit = "units"
+        self.trial_scale.set_scales(
+            time_value,
+            amplitude_value,
+            unit,
+            time_value * pixels_per_second,
+            amplitude_value * pixels_per_unit,
+        )
+        self.trial_scale.move(
+            max(0, self.plot.width() - self.trial_scale.width() - 14),
+            max(0, self.plot.height() - self.trial_scale.height() - 14),
+        )
 
     @QtCore.Slot()
     def run_automated_benchmark(self, iterations: int | None = None) -> None:

@@ -73,8 +73,24 @@ height is the number of unique channels marked by any artifact detector or as
 impossible to interpolate. Click or drag across it to navigate. Average and
 grand-average files expose named conditions or subjects in the **Series** menu.
 
+For segmented data, the **Clean-trial average α** slider defaults to 0.50. A thicker, purple
+trace beneath each channel's current trial shows the mean of that channel's
+unflagged trials. Its visible range is independently centered and fitted to
+that channel's display height; the trial traces retain their shared native-unit
+scale. Trials marked with any artifact, interpolation, or
+cannot-interpolate flag for that channel are excluded. Trials of different
+lengths are aligned by their recorded start times; missing or non-finite samples
+do not contribute. Move the opacity slider to 0 to hide the overlay.
+
+A small **Trial scale** inset at the lower-right of the plot shows paper-style
+time and native-amplitude scale bars. Their labels and line lengths follow the
+current time and amplitude zoom; they describe the trials, not the rescaled
+average.
+
 Hovering over a channel reports label, type, declared unit, artifact types,
 interpolation state, cursor time/value, and visible-window min/max/peak-to-peak.
+A short vertical cursor follows the pointer within that channel, with a small
+time label in milliseconds; both disappear when the pointer leaves the channel.
 
 - Mouse wheel: move through time.
 - Ctrl+mouse wheel: zoom in or out around the cursor.

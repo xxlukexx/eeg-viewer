@@ -233,3 +233,36 @@ def stack_for_plot(
     x[:, :points] = seconds
     y[:, :points] = scaled
     return x.ravel(), y.ravel(), offsets
+
+
+def fit_average_to_channel(
+    average: FloatArray,
+    *,
+    half_height: float = 0.35,
+) -> FloatArray:
+    """Center each mean and fit its visible finite range within one channel.
+
+    The result uses channel-spacing units rather than native signal units.
+    Constant and wholly missing channel means remain flat and missing,
+    respectively.
+    """
+
+    values = np.asarray(average, dtype=np.float32)
+    if values.ndim != 2:
+        raise ValueError("average must have shape channels x samples")
+    fitted = np.full(values.shape, np.nan, dtype=np.float32)
+    for row, channel in enumerate(values):
+        finite = np.isfinite(channel)
+        if not finite.any():
+            continue
+        minimum = float(channel[finite].min())
+        maximum = float(channel[finite].max())
+        half_range = (maximum - minimum) / 2.0
+        if half_range == 0:
+            fitted[row, finite] = 0.0
+        else:
+            midpoint = minimum + half_range
+            fitted[row, finite] = (
+                (channel[finite] - midpoint) * (half_height / half_range)
+            )
+    return fitted
