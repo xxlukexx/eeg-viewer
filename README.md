@@ -1,16 +1,7 @@
 # EEG Viewer 1.0
 
 EEG Viewer is a fast, read-only desktop application for reviewing EEG waveforms,
-trial-level artifact decisions, and interpolation state. It uses PySide6 and
-PyQtGraph with batched waveform geometry and peak-preserving display reduction.
-
-Version 1 deliberately excludes editing, undo/redo, and data export.
-
-This is now a standalone Python project. It has no runtime dependency on the
-MATLAB `eeg_tools` repository from which the original prototype and rendering
-spike were developed. The provisional design notes and measured rendering
-results remain available in [docs/INITIAL_OUTLINE.md](docs/INITIAL_OUTLINE.md)
-and [benchmarks/RESULTS_2026-08-06.md](benchmarks/RESULTS_2026-08-06.md).
+trial-level artifact decisions, and interpolation state.
 
 ## Supported inputs
 
@@ -20,9 +11,6 @@ and [benchmarks/RESULTS_2026-08-06.md](benchmarks/RESULTS_2026-08-06.md).
 - FieldTrip grand averages with a grand mean and/or named individual subjects;
 - conventional MATLAB MAT files and MATLAB 7.3/HDF5 files; and
 - continuous EEGLAB `.set`/`.fdt` recordings, read lazily through MNE.
-
-EEGLAB access uses a bounded 60-second all-channel read-ahead cache. This keeps
-ordinary scrolling responsive without preloading a complete long recording.
 
 ## Install and run without administrator access
 
