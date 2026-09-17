@@ -240,11 +240,11 @@ def fit_average_to_channel(
     *,
     half_height: float = 0.35,
 ) -> FloatArray:
-    """Center each mean and fit its visible finite range within one channel.
+    """Fit each mean symmetrically around zero within one channel.
 
     The result uses channel-spacing units rather than native signal units.
-    Constant and wholly missing channel means remain flat and missing,
-    respectively.
+    Zero remains the channel centre so baseline-corrected polarity is preserved.
+    Wholly missing channel means remain missing.
     """
 
     values = np.asarray(average, dtype=np.float32)
@@ -255,14 +255,11 @@ def fit_average_to_channel(
         finite = np.isfinite(channel)
         if not finite.any():
             continue
-        minimum = float(channel[finite].min())
-        maximum = float(channel[finite].max())
-        half_range = (maximum - minimum) / 2.0
-        if half_range == 0:
+        maximum_absolute = float(np.abs(channel[finite]).max())
+        if maximum_absolute == 0:
             fitted[row, finite] = 0.0
         else:
-            midpoint = minimum + half_range
             fitted[row, finite] = (
-                (channel[finite] - midpoint) * (half_height / half_range)
+                channel[finite] * (half_height / maximum_absolute)
             )
     return fitted

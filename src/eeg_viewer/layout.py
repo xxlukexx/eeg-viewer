@@ -21,12 +21,16 @@ class ResolvedLayout:
     matched: NDArray[np.bool_]
     kind: str
     source: str
+    scalp_positions: NDArray[np.float64] | None = None
 
     def __post_init__(self) -> None:
         if self.positions.shape != (len(self.labels), 2):
             raise ValueError("resolved positions must have shape channels x 2")
         if self.matched.shape != (len(self.labels),):
             raise ValueError("resolved match flags do not align with labels")
+        if self.scalp_positions is not None:
+            if self.scalp_positions.shape != (len(self.labels), 2):
+                raise ValueError("scalp positions must have shape channels x 2")
 
     @property
     def coverage(self) -> float:
@@ -105,6 +109,7 @@ def grid_layout(labels: Iterable[str]) -> ResolvedLayout:
         matched=np.zeros(len(channel_labels), dtype=bool),
         kind="grid",
         source="deterministic-grid",
+        scalp_positions=None,
     )
 
 
@@ -127,9 +132,18 @@ def _resolve_candidate(
             matched[channel] = True
 
     if not np.any(matched):
-        return ResolvedLayout(labels, _grid_positions(len(labels)), matched, "grid", candidate.source)
+        return ResolvedLayout(
+            labels,
+            _grid_positions(len(labels)),
+            matched,
+            "grid",
+            candidate.source,
+            None,
+        )
 
     normalized = _normalise_xy(positions[matched])
+    scalp_positions = np.full((len(labels), 2), np.nan, dtype=float)
+    scalp_positions[matched] = _normalise_scalp(positions[matched])
     unmatched_count = int(np.sum(~matched))
     if unmatched_count == 0:
         positions[matched] = 0.08 + 0.84 * normalized
@@ -142,7 +156,14 @@ def _resolve_candidate(
         side[:, 1] = 0.04 + 0.92 * side[:, 1]
         positions[~matched] = side
         kind = "hybrid"
-    return ResolvedLayout(labels, positions, matched, kind, candidate.source)
+    return ResolvedLayout(
+        labels,
+        positions,
+        matched,
+        kind,
+        candidate.source,
+        scalp_positions,
+    )
 
 
 def _standard_candidate(
@@ -222,6 +243,16 @@ def _normalise_xy(values: NDArray[np.float64]) -> NDArray[np.float64]:
     span = maximum - minimum
     scale = float(max(span.max(), 1e-12))
     return (values - centre) / scale + 0.5
+
+
+def _normalise_scalp(values: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Centre sensor geometry and fit it just inside a circular head outline."""
+
+    values = np.asarray(values, dtype=float)
+    centre = (values.min(axis=0) + values.max(axis=0)) / 2.0
+    centred = values - centre
+    radius = float(max(np.linalg.norm(centred, axis=1).max(), 1e-12))
+    return 0.5 + 0.46 * centred / radius
 
 
 def _project_positions(values: NDArray[np.float64]) -> NDArray[np.float64]:

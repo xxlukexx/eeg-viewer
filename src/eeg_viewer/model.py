@@ -236,6 +236,7 @@ class DatasetViewSource:
         self.dataset = dataset
         self.segment_index = segment_index
         self.series_index = series_index
+        self._baseline_cache: dict[tuple[int, int, int], FloatArray] = {}
         self._validate_selection()
 
     def _validate_selection(self) -> None:
@@ -306,6 +307,63 @@ class DatasetViewSource:
             stop_sample,
         )
 
+    def baseline_sample_count(self, segment_index: int | None = None) -> int:
+        """Return the number of samples whose recorded timestamp is below zero."""
+
+        index = self.segment_index if segment_index is None else int(segment_index)
+        segment = self.dataset.segments[index]
+        if segment.start_time_seconds >= 0.0:
+            return 0
+        exact_count = -segment.start_time_seconds * self.sample_rate_hz
+        nearest_integer = round(exact_count)
+        if np.isclose(exact_count, nearest_integer, rtol=0.0, atol=1e-7):
+            exact_count = float(nearest_integer)
+        return min(segment.sample_count, max(0, int(np.ceil(exact_count))))
+
+    def baseline_mean(
+        self,
+        segment_index: int | None = None,
+        series_index: int | None = None,
+    ) -> FloatArray:
+        """Return each channel's finite-sample mean over timestamps below zero."""
+
+        segment = self.segment_index if segment_index is None else int(segment_index)
+        series = self.series_index if series_index is None else int(series_index)
+        key = (id(self.dataset), segment, series)
+        cached = self._baseline_cache.get(key)
+        if cached is not None:
+            return cached
+
+        stop = self.baseline_sample_count(segment)
+        if stop == 0:
+            baseline = np.zeros(self.channel_count, dtype=np.float64)
+        else:
+            values = np.asarray(
+                self.dataset.signal.read(segment, series, slice(None), 0, stop),
+                dtype=np.float64,
+            )
+            finite = np.isfinite(values)
+            counts = finite.sum(axis=1)
+            sums = np.where(finite, values, 0.0).sum(axis=1)
+            baseline = np.full(self.channel_count, np.nan, dtype=np.float64)
+            np.divide(sums, counts, out=baseline, where=counts > 0)
+        self._baseline_cache[key] = baseline
+        return baseline
+
+    def read_baseline_corrected(
+        self,
+        channels: Sequence[int] | slice,
+        start_sample: int,
+        stop_sample: int,
+    ) -> FloatArray:
+        """Read the selected trial after subtracting its negative-time mean."""
+
+        values = np.asarray(self.read(channels, start_sample, stop_sample))
+        if self.baseline_sample_count() == 0:
+            return values
+        selected = np.arange(self.channel_count)[channels]
+        return values - self.baseline_mean()[selected, None]
+
     def read_clean_average(
         self,
         channels: Sequence[int] | slice,
@@ -357,6 +415,9 @@ class DatasetViewSource:
                     overlap_stop + shift,
                 )
             )
+            if self.baseline_sample_count(index) > 0:
+                baseline = self.baseline_mean(index, self.series_index)
+                values = values - baseline[selected[eligible_rows], None]
             finite = np.isfinite(values)
             destination = slice(overlap_start - start, overlap_stop - start)
             sums[eligible_rows, destination] += np.where(finite, values, 0.0)

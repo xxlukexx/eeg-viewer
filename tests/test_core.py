@@ -72,7 +72,7 @@ def test_stack_for_plot_separates_channels_with_nan_breaks() -> None:
     assert y[4] == -1.0
 
 
-def test_clean_average_fits_each_channel_independently() -> None:
+def test_clean_average_fits_each_channel_around_zero() -> None:
     average = np.array(
         [[10, 11, 12, np.nan], [-100, 0, 100, 0], [5, 5, 5, 5], [np.nan] * 4],
         dtype=np.float32,
@@ -80,8 +80,8 @@ def test_clean_average_fits_each_channel_independently() -> None:
 
     fitted = fit_average_to_channel(average, half_height=0.42)
 
-    np.testing.assert_allclose(fitted[0, :3], [-0.42, 0, 0.42])
+    np.testing.assert_allclose(fitted[0, :3], [0.35, 0.385, 0.42])
     np.testing.assert_allclose(fitted[1], [-0.42, 0, 0.42, 0])
-    np.testing.assert_allclose(fitted[2], 0)
+    np.testing.assert_allclose(fitted[2], 0.42)
     assert np.isnan(fitted[0, 3])
     assert np.isnan(fitted[3]).all()

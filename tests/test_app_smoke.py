@@ -51,11 +51,24 @@ def test_window_switches_views_and_segments(tmp_path: Path, monkeypatch) -> None
 
     window.show()
     application.processEvents()
+    assert window.topomap_panel is not None
+    np.testing.assert_allclose(
+        window.topomap_panel.last_clean_values, [0.0, 0.0, 0.0]
+    )
+    np.testing.assert_allclose(
+        window.topomap_panel.last_current_values, [0.0, 0.0, 0.0]
+    )
+    assert window.topomap_toggle.isChecked()
+    window.topomap_toggle.setChecked(False)
+    assert window.topomap_panel.isHidden()
+    window.topomap_toggle.setChecked(True)
+    assert not window.topomap_panel.isHidden()
     chart_point = window.view_box.mapViewToScene(QtCore.QPointF(0.1, 2.0))
     window._mouse_moved((chart_point,))
     assert window.hover_cursor.isVisible()
     assert window.hover_time_label.isVisible()
     assert window.hover_time_label.toPlainText() == "100.0 ms"
+    assert "100.0 ms" in window.topomap_panel.time_label.text()
     assert np.isclose(window.hover_cursor.line().x1(), 0.1)
     assert np.isclose(window.hover_cursor.line().y1(), 1.54)
     assert np.isclose(window.hover_cursor.line().y2(), 2.46)
@@ -89,7 +102,9 @@ def test_window_switches_views_and_segments(tmp_path: Path, monkeypatch) -> None
     window.amplitude.setValue(500)
     assert window.trial_scale.amplitude > initial_amplitude_scale
     window.amplitude.setValue(100)
-    np.testing.assert_allclose(window._average_cache_data[:, :50], [[0] * 50, [0.5] * 50, [0.5] * 50])
+    np.testing.assert_allclose(
+        window._average_cache_data[:, :50], [[0] * 50, [0] * 50, [0] * 50]
+    )
     _, initial_average_y = window.average_curve.getData()
     assert np.isfinite(initial_average_y).any()
     window.average_alpha_slider.setValue(0)
@@ -114,6 +129,10 @@ def test_window_switches_views_and_segments(tmp_path: Path, monkeypatch) -> None
     QtTest.QTest.keyClick(window.mode_control, QtCore.Qt.Key.Key_PageDown)
     assert window.trial_overview.current_segment == 1
     assert window.trial_overview.bad_channel_counts.tolist() == [0, 1]
+    np.testing.assert_allclose(
+        window.topomap_panel.last_current_values, [0.0, 0.0, 0.0]
+    )
+    assert window.topomap_panel.current_map.title.text() == "Trial 2"
     hover_height = window.hover_label.height()
     plot_height = window.plot.height()
     placement = window._current_placements[0]

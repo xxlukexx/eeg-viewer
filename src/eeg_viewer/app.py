@@ -33,6 +33,7 @@ from .layout import ResolvedLayout, grid_layout, resolve_layout
 from .metrics import MetricRecorder, UpdateMetric
 from .model import DatasetKind, DatasetViewSource
 from .synthetic import SyntheticConfig, generate_recording
+from .topomap import DualTopomapWidget
 from .widgets import TrialOverviewWidget, TrialScaleWidget
 
 
@@ -150,6 +151,10 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self._last_channel_indices: tuple[int, ...] = ()
         self._average_cache_key: tuple[Any, ...] | None = None
         self._average_cache_data: np.ndarray | None = None
+        self._average_cache_start = 0
+        self._topomap_channel_indices = self._resolve_topomap_channels()
+        self._topomap_cursor_sample: int | None = None
+        self.topomap_panel: DualTopomapWidget | None = None
         self.setAcceptDrops(True)
 
         renderer = {
@@ -176,6 +181,21 @@ class ViewerWindow(QtWidgets.QMainWindow):
 
         if automated_iterations > 0:
             QtCore.QTimer.singleShot(500, self.run_automated_benchmark)
+
+    def _resolve_topomap_channels(self) -> tuple[int, ...]:
+        """Return positioned EEG channels suitable for scalp interpolation."""
+
+        positions = self.resolved_layout.scalp_positions
+        dataset = getattr(self.source, "dataset", None)
+        if not self._has_clean_average or positions is None or dataset is None:
+            return ()
+        return tuple(
+            index
+            for index, channel in enumerate(dataset.channels)
+            if self.resolved_layout.matched[index]
+            and np.isfinite(positions[index]).all()
+            and channel.channel_type.casefold() == "eeg"
+        )
 
     def _build_ui(self) -> None:
         central = QtWidgets.QWidget(self)
@@ -234,6 +254,15 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self.mode_control.setCurrentText(self.mode)
         self.mode_control.currentTextChanged.connect(self._mode_changed)
         controls.addWidget(self.mode_control)
+
+        self.topomap_toggle = QtWidgets.QToolButton()
+        self.topomap_toggle.setText("Scalp maps")
+        self.topomap_toggle.setCheckable(True)
+        self.topomap_toggle.setChecked(len(self._topomap_channel_indices) >= 3)
+        self.topomap_toggle.setEnabled(len(self._topomap_channel_indices) >= 3)
+        self.topomap_toggle.setToolTip("Show or hide the dual scalp-map panel")
+        self.topomap_toggle.toggled.connect(self._topomap_visibility_changed)
+        controls.addWidget(self.topomap_toggle)
 
         segment_count = int(getattr(self.source, "segment_count", 1))
         controls.addWidget(QtWidgets.QLabel("Segment"))
@@ -392,6 +421,23 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self.channel_scroll.setPageStep(self.state.visible_channels)
         self.channel_scroll.valueChanged.connect(self._channel_scroll_changed)
         plot_row.addWidget(self.channel_scroll)
+        if len(self._topomap_channel_indices) >= 3:
+            scalp_positions = self.resolved_layout.scalp_positions
+            assert scalp_positions is not None
+            indices = np.asarray(self._topomap_channel_indices, dtype=int)
+            positions = 2.0 * scalp_positions[indices] - 1.0
+            labels = tuple(self.source.channel_labels[index] for index in indices)
+            self.topomap_panel = DualTopomapWidget(
+                positions,
+                labels,
+                self._topomap_channel_indices,
+                self.source.sample_rate_hz,
+            )
+            self.topomap_panel.window_ms_changed.connect(
+                self._topomap_window_changed
+            )
+            self.topomap_panel.setVisible(self.topomap_toggle.isChecked())
+            plot_row.addWidget(self.topomap_panel)
         outer.addLayout(plot_row, 1)
 
         bad_counts, layer_counts = self._trial_overview_data()
@@ -554,12 +600,26 @@ class ViewerWindow(QtWidgets.QMainWindow):
         if was_visible != (value > 0):
             self.refresh("average-alpha")
 
+    @QtCore.Slot(bool)
+    def _topomap_visibility_changed(self, visible: bool) -> None:
+        if self.topomap_panel is None:
+            return
+        self.topomap_panel.setVisible(visible)
+        self._average_cache_key = None
+        self.refresh("topomap-visibility")
+
+    @QtCore.Slot(float)
+    def _topomap_window_changed(self, _value: float) -> None:
+        self._average_cache_key = None
+        self.refresh("topomap-window")
+
     def _segment_changed(self, value: int) -> None:
         if self._updating_controls or not hasattr(self.source, "select_segment"):
             return
         self.source.select_segment(value - 1)
         self.state.sample_count = self.source.sample_count
         self.state.start_sample = 0
+        self._topomap_cursor_sample = None
         self.state.clamp()
         self.window_seconds.setMaximum(self.source.duration_seconds)
         self._rebuild_static_overlays()
@@ -712,6 +772,87 @@ class ViewerWindow(QtWidgets.QMainWindow):
             self.plot.addItem(nose_item)
             self._overlay_items.append(nose_item)
 
+    def _topomap_window_samples(self) -> int:
+        if self.topomap_panel is None:
+            return 1
+        return max(
+            1,
+            int(
+                round(
+                    self.topomap_panel.window_ms.value()
+                    * self.source.sample_rate_hz
+                    / 1_000.0
+                )
+            ),
+        )
+
+    def _topomap_window_bounds(self, centre_sample: int) -> tuple[int, int]:
+        count = min(self.source.sample_count, self._topomap_window_samples())
+        start = int(centre_sample) - (count - 1) // 2
+        stop = start + count
+        if start < 0:
+            stop -= start
+            start = 0
+        if stop > self.source.sample_count:
+            start -= stop - self.source.sample_count
+            stop = self.source.sample_count
+        return max(0, start), max(0, stop)
+
+    @staticmethod
+    def _mean_rows(values: np.ndarray) -> np.ndarray:
+        finite = np.isfinite(values)
+        counts = finite.sum(axis=1)
+        sums = np.where(finite, values, 0.0).sum(axis=1, dtype=np.float64)
+        result = np.full(values.shape[0], np.nan, dtype=np.float64)
+        np.divide(sums, counts, out=result, where=counts > 0)
+        return result
+
+    def _update_topomaps(self) -> None:
+        if self.topomap_panel is None or self.topomap_panel.isHidden():
+            return
+
+        visible_stop = max(self.state.start_sample + 1, self.state.stop_sample)
+        centre = self._topomap_cursor_sample
+        if centre is None or not self.state.start_sample <= centre < visible_stop:
+            centre = min(
+                self.source.sample_count - 1,
+                self.state.start_sample
+                + max(0, self.state.stop_sample - self.state.start_sample - 1) // 2,
+            )
+            self._topomap_cursor_sample = centre
+
+        start, stop = self._topomap_window_bounds(centre)
+        current = np.asarray(
+            self.source.read_baseline_corrected(slice(None), start, stop)
+        )
+        if (
+            self._average_cache_data is not None
+            and self._average_cache_start <= start
+            and stop
+            <= self._average_cache_start + self._average_cache_data.shape[1]
+        ):
+            local_start = start - self._average_cache_start
+            local_stop = stop - self._average_cache_start
+            average = self._average_cache_data[:, local_start:local_stop]
+        else:
+            average = self.source.read_clean_average(slice(None), start, stop)
+
+        indices = self.topomap_panel.channel_indices
+        clean_values = self._mean_rows(np.asarray(average))[indices]
+        current_values = self._mean_rows(current)[indices]
+        time_seconds = (
+            float(getattr(self.source, "time_start_seconds", 0.0))
+            + centre / self.source.sample_rate_hz
+        )
+        self.topomap_panel.set_maps(
+            clean_values,
+            current_values,
+            trial_number=int(getattr(self.source, "segment_index", 0)) + 1,
+            time_seconds=time_seconds,
+            window_seconds=(stop - start) / self.source.sample_rate_hz,
+            unit=str(self.source.unit),
+        )
+
     def _mouse_moved(self, event: tuple[Any, ...]) -> None:
         if not event:
             return
@@ -853,6 +994,12 @@ class ViewerWindow(QtWidgets.QMainWindow):
                 * self.source.sample_rate_hz
             )
         ) - self.state.start_sample
+        if 0 <= local_sample < values.size:
+            self._topomap_cursor_sample = min(
+                self.source.sample_count - 1,
+                self.state.start_sample + local_sample,
+            )
+            self._update_topomaps()
         cursor_text = f"t {time_seconds:.4f} s"
         if 0 <= local_sample < values.size and np.isfinite(values[local_sample]):
             cursor_text += f", value {float(values[local_sample]):.4g} {html.escape(self.source.unit)}"
@@ -973,28 +1120,49 @@ class ViewerWindow(QtWidgets.QMainWindow):
             max_time_bins=time_bins,
         )
         average_x = average_y = np.empty(0, dtype=np.float32)
-        if self._has_clean_average and self.average_alpha_slider.value() > 0:
+        average_reduced = None
+        needs_average = self._has_clean_average and (
+            self.average_alpha_slider.value() > 0
+            or (
+                self.topomap_panel is not None
+                and not self.topomap_panel.isHidden()
+            )
+        )
+        if needs_average:
+            padding = (
+                self._topomap_window_samples() // 2
+                if self.topomap_panel is not None
+                and not self.topomap_panel.isHidden()
+                else 0
+            )
+            cache_start = max(0, self.state.start_sample - padding)
+            cache_stop = min(self.source.sample_count, self.state.stop_sample + padding)
             cache_key = (
                 self.source.series_index,
                 self.source.segment_index,
-                self.state.start_sample,
-                self.state.stop_sample,
-                self._last_channel_indices,
+                cache_start,
+                cache_stop,
             )
             if cache_key != self._average_cache_key:
                 self._average_cache_data = self.source.read_clean_average(
-                    channel_slice,
-                    self.state.start_sample,
-                    self.state.stop_sample,
+                    slice(None),
+                    cache_start,
+                    cache_stop,
                 )
                 self._average_cache_key = cache_key
-            average_reduced = reduce_ordered_extrema(
-                fit_average_to_channel(self._average_cache_data, half_height=0.42),
-                start_sample=self.state.start_sample,
-                max_time_bins=time_bins,
-            )
-        else:
-            average_reduced = None
+                self._average_cache_start = cache_start
+            if self.average_alpha_slider.value() > 0:
+                assert self._average_cache_data is not None
+                view_start = self.state.start_sample - self._average_cache_start
+                view_stop = view_start + data.shape[1]
+                average_for_display = self._average_cache_data[
+                    channel_slice, view_start:view_stop
+                ]
+                average_reduced = reduce_ordered_extrema(
+                    fit_average_to_channel(average_for_display, half_height=0.42),
+                    start_sample=self.state.start_sample,
+                    max_time_bins=time_bins,
+                )
         offsets = np.empty(0, dtype=np.float32)
         if self.mode == "chart":
             x, y, offsets = stack_for_plot(
@@ -1072,6 +1240,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
             f"{data.shape[0]} of {self.source.channel_count} channels  |  "
             f"{reduced.samples_per_bin} source samples/display bin"
         )
+        self._update_topomaps()
         return metric
 
     def _update_trial_scale(self, chart_channels: int) -> None:

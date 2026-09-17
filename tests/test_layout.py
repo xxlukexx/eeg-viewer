@@ -23,6 +23,10 @@ def test_parse_fieldtrip_lay_and_preserve_channel_order(tmp_path: Path) -> None:
     assert resolved.kind == "sensor"
     assert resolved.coverage == 1.0
     assert resolved.positions[1, 1] > resolved.positions[0, 1]
+    assert resolved.scalp_positions is not None
+    assert resolved.scalp_positions[1, 1] > resolved.scalp_positions[0, 1]
+    scalp_radius = np.linalg.norm(2.0 * resolved.scalp_positions - 1.0, axis=1)
+    assert np.all(scalp_radius <= 0.92 + 1e-12)
 
 
 def test_embedded_layout_wins_and_unmatched_auxiliary_channel_is_retained() -> None:
@@ -38,6 +42,8 @@ def test_embedded_layout_wins_and_unmatched_auxiliary_channel_is_retained() -> N
     assert resolved.kind == "hybrid"
     assert resolved.matched.tolist() == [True, True, True, False]
     assert resolved.positions[3, 0] > 0.79
+    assert resolved.scalp_positions is not None
+    assert np.isnan(resolved.scalp_positions[3]).all()
 
 
 def test_standard_label_lookup_and_grid_fallback() -> None:
@@ -49,6 +55,7 @@ def test_standard_label_lookup_and_grid_fallback() -> None:
     assert standard.coverage == 1.0
     assert fallback.kind == "grid"
     assert fallback.coverage == 0.0
+    assert fallback.scalp_positions is None
     np.testing.assert_allclose(fallback.positions, grid_layout(fallback.labels).positions)
 
 

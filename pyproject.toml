@@ -16,6 +16,7 @@ dependencies = [
     "pymatreader>=1.2",
     "pyqtgraph>=0.14",
     "PySide6>=6.7",
+    "scipy>=1.11",
 ]
 
 [project.optional-dependencies]

@@ -63,12 +63,27 @@ grand-average files expose named conditions or subjects in the **Series** menu.
 
 For segmented data, the **Clean-trial average α** slider defaults to 0.50. A thicker, purple
 trace beneath each channel's current trial shows the mean of that channel's
-unflagged trials. Its visible range is independently centered and fitted to
-that channel's display height; the trial traces retain their shared native-unit
-scale. Trials marked with any artifact, interpolation, or
+unflagged trials. Its visible range is independently fitted symmetrically around
+zero within that channel's display height; the trial traces retain their shared
+native-unit scale. Trials marked with any artifact, interpolation, or
 cannot-interpolate flag for that channel are excluded. Trials of different
 lengths are aligned by their recorded start times; missing or non-finite samples
-do not contribute. Move the opacity slider to 0 to hide the overlay.
+do not contribute. When a trial contains timestamps below zero, their finite
+per-channel mean is automatically subtracted before that trial contributes to
+the clean average. Move the opacity slider to 0 to hide the overlay.
+
+When segmented data has usable EEG sensor positions, two top-down scalp maps
+appear beside the waveforms. The left map shows the same greedy, per-channel
+clean-trial average as the traces; the right map shows the selected trial. Move
+the pointer across any waveform cell to set their shared time centre. The
+**Window** control sets the duration averaged around that centre. Both heads use
+independent symmetric, zero-centred colour scales, so the lower-amplitude clean
+average retains useful contrast. Sensor labels are available by hovering over
+their dots. The checkable **Scalp maps** control beside the view selector shows
+or hides the panel. A lightly regularized thin-plate spline produces the smooth
+scalp field without visible triangulation facets. The selected-trial map receives
+the same automatic negative-time baseline correction; raw trial traces remain
+unaltered.
 
 A small **Trial scale** inset at the lower-right of the plot shows paper-style
 time and native-amplitude scale bars. Their labels and line lengths follow the
@@ -79,6 +94,7 @@ Hovering over a channel reports label, type, declared unit, artifact types,
 interpolation state, cursor time/value, and visible-window min/max/peak-to-peak.
 A short vertical cursor follows the pointer within that channel, with a small
 time label in milliseconds; both disappear when the pointer leaves the channel.
+The scalp maps retain the last selected cursor time.
 
 - Mouse wheel: move through time.
 - Ctrl+mouse wheel: zoom in or out around the cursor.
@@ -162,8 +178,8 @@ compatible subject averages and also includes their grand mean.
 - additional EEG/BIDS adapters; and
 - further cache complexity unless larger recordings demonstrate a need.
 
-The scalp view arranges waveform tiles at electrodes; it is not an interpolated
-voltage topomap.
+The scalp view arranges waveform tiles at electrodes; the accompanying dual-head
+panel provides the interpolated voltage topomaps.
 
 ## License
 

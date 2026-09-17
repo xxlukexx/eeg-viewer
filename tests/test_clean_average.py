@@ -64,3 +64,54 @@ def test_clean_average_aligns_time_and_excludes_flags_per_channel() -> None:
     )
     with pytest.raises(ValueError, match="segmented"):
         source.read_clean_average(slice(None), 0, 1)
+
+
+def test_negative_timestamps_define_per_trial_channel_baselines() -> None:
+    blocks = (
+        np.array(
+            [[[10, 12, 14, 16], [5, 7, 9, 11]]],
+            dtype=np.float32,
+        ),
+        np.array(
+            [[[20, 22, 26, 28], [15, 19, 23, 27]]],
+            dtype=np.float32,
+        ),
+    )
+    dataset = EegDataset(
+        kind=DatasetKind.SEGMENTED,
+        channels=(ChannelInfo(0, "C1"), ChannelInfo(1, "C2")),
+        segments=tuple(
+            SegmentInfo(index, f"trial-{index}", 4, -0.02, 0.01)
+            for index in range(2)
+        ),
+        signal=InMemorySignalSource(blocks, sample_rate_hz=100.0),
+    )
+    source = DatasetViewSource(dataset)
+
+    assert source.baseline_sample_count() == 2
+    np.testing.assert_allclose(source.baseline_mean(), [11, 6])
+    np.testing.assert_allclose(
+        source.read_baseline_corrected(slice(None), 0, 4),
+        [[-1, 1, 3, 5], [-1, 1, 3, 5]],
+    )
+    np.testing.assert_allclose(
+        source.read_clean_average(slice(None), 0, 4),
+        [[-1, 1, 4, 6], [-1.5, 1.5, 4.5, 7.5]],
+    )
+
+
+def test_nonnegative_timestamps_leave_values_unchanged() -> None:
+    block = np.array([[[3, 4, 5]]], dtype=np.float32)
+    dataset = EegDataset(
+        kind=DatasetKind.SEGMENTED,
+        channels=(ChannelInfo(0, "C1"),),
+        segments=(SegmentInfo(0, "trial-0", 3, 0.0, 0.01),),
+        signal=InMemorySignalSource((block,), sample_rate_hz=100.0),
+    )
+    source = DatasetViewSource(dataset)
+
+    assert source.baseline_sample_count() == 0
+    np.testing.assert_array_equal(
+        source.read_baseline_corrected(slice(None), 0, 3),
+        [[3, 4, 5]],
+    )
