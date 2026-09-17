@@ -73,7 +73,7 @@ per-channel mean is automatically subtracted before that trial contributes to
 the clean average. Move the opacity slider to 0 to hide the overlay.
 
 When segmented data has usable EEG sensor positions, two top-down scalp maps
-appear beside the waveforms. The left map shows the same greedy, per-channel
+appear beside the waveforms. The left map shows the same per-channel
 clean-trial average as the traces; the right map shows the selected trial. Move
 the pointer across any waveform cell to set their shared time centre. The
 **Window** control sets the duration averaged around that centre. Both heads use
@@ -84,6 +84,13 @@ or hides the panel. A lightly regularized thin-plate spline produces the smooth
 scalp field without visible triangulation facets. The selected-trial map receives
 the same automatic negative-time baseline correction; raw trial traces remain
 unaltered.
+
+A FieldTrip subject or grand average is displayed as one trial-like timeline at
+a time. Its clean-trial trace overlay and clean-average scalp map are omitted,
+because they would duplicate the loaded average. The remaining scalp map still
+follows the waveform cursor and uses the selected averaging window. Files with
+multiple named conditions or subject series expose them in the **Series** menu,
+with one series displayed at a time.
 
 A small **Trial scale** inset at the lower-right of the plot shows paper-style
 time and native-amplitude scale bars. Their labels and line lengths follow the

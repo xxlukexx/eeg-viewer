@@ -187,7 +187,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
 
         positions = self.resolved_layout.scalp_positions
         dataset = getattr(self.source, "dataset", None)
-        if not self._has_clean_average or positions is None or dataset is None:
+        if positions is None or dataset is None:
             return ()
         return tuple(
             index
@@ -260,7 +260,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self.topomap_toggle.setCheckable(True)
         self.topomap_toggle.setChecked(len(self._topomap_channel_indices) >= 3)
         self.topomap_toggle.setEnabled(len(self._topomap_channel_indices) >= 3)
-        self.topomap_toggle.setToolTip("Show or hide the dual scalp-map panel")
+        self.topomap_toggle.setToolTip("Show or hide the scalp-map panel")
         self.topomap_toggle.toggled.connect(self._topomap_visibility_changed)
         controls.addWidget(self.topomap_toggle)
 
@@ -432,6 +432,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
                 labels,
                 self._topomap_channel_indices,
                 self.source.sample_rate_hz,
+                show_clean_average=self._has_clean_average,
             )
             self.topomap_panel.window_ms_changed.connect(
                 self._topomap_window_changed
@@ -825,20 +826,21 @@ class ViewerWindow(QtWidgets.QMainWindow):
         current = np.asarray(
             self.source.read_baseline_corrected(slice(None), start, stop)
         )
-        if (
-            self._average_cache_data is not None
-            and self._average_cache_start <= start
-            and stop
-            <= self._average_cache_start + self._average_cache_data.shape[1]
-        ):
-            local_start = start - self._average_cache_start
-            local_stop = stop - self._average_cache_start
-            average = self._average_cache_data[:, local_start:local_stop]
-        else:
-            average = self.source.read_clean_average(slice(None), start, stop)
-
         indices = self.topomap_panel.channel_indices
-        clean_values = self._mean_rows(np.asarray(average))[indices]
+        clean_values = None
+        if self._has_clean_average:
+            if (
+                self._average_cache_data is not None
+                and self._average_cache_start <= start
+                and stop
+                <= self._average_cache_start + self._average_cache_data.shape[1]
+            ):
+                local_start = start - self._average_cache_start
+                local_stop = stop - self._average_cache_start
+                average = self._average_cache_data[:, local_start:local_stop]
+            else:
+                average = self.source.read_clean_average(slice(None), start, stop)
+            clean_values = self._mean_rows(np.asarray(average))[indices]
         current_values = self._mean_rows(current)[indices]
         time_seconds = (
             float(getattr(self.source, "time_start_seconds", 0.0))
@@ -848,10 +850,21 @@ class ViewerWindow(QtWidgets.QMainWindow):
             clean_values,
             current_values,
             trial_number=int(getattr(self.source, "segment_index", 0)) + 1,
+            current_title=self._topomap_current_title(),
             time_seconds=time_seconds,
             window_seconds=(stop - start) / self.source.sample_rate_hz,
             unit=str(self.source.unit),
         )
+
+    def _topomap_current_title(self) -> str:
+        dataset = getattr(self.source, "dataset", None)
+        if dataset is None or dataset.kind == DatasetKind.SEGMENTED:
+            return f"Trial {int(getattr(self.source, 'segment_index', 0)) + 1}"
+        labels = getattr(dataset.signal, "series_labels", ())
+        index = int(getattr(self.source, "series_index", 0))
+        if 0 <= index < len(labels):
+            return str(labels[index]).replace("_", " ").strip().title()
+        return "Average"
 
     def _mouse_moved(self, event: tuple[Any, ...]) -> None:
         if not event:

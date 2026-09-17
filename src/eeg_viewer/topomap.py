@@ -302,7 +302,7 @@ class DivergingScaleWidget(QtWidgets.QWidget):
 
 
 class DualTopomapWidget(QtWidgets.QGroupBox):
-    """Synchronized clean-average and selected-trial scalp maps."""
+    """One signal scalp map, optionally paired with a clean-trial average."""
 
     window_ms_changed = QtCore.Signal(float)
 
@@ -313,9 +313,12 @@ class DualTopomapWidget(QtWidgets.QGroupBox):
         channel_indices: Sequence[int],
         sample_rate_hz: float,
         parent: QtWidgets.QWidget | None = None,
+        *,
+        show_clean_average: bool = True,
     ) -> None:
         super().__init__("Scalp maps", parent)
         self.channel_indices = np.asarray(channel_indices, dtype=int)
+        self.show_clean_average = bool(show_clean_average)
         self.last_clean_values = np.full(len(channel_indices), np.nan, dtype=float)
         self.last_current_values = np.full(len(channel_indices), np.nan, dtype=float)
         self.last_clean_limit = 1.0
@@ -342,11 +345,14 @@ class DualTopomapWidget(QtWidgets.QGroupBox):
         interpolator = TopomapInterpolator(np.asarray(positions, dtype=float))
         map_row = QtWidgets.QHBoxLayout()
         map_row.setSpacing(5)
-        self.clean_map = ScalpMapWidget(
-            "Clean-trial average", interpolator, labels
+        self.clean_map = (
+            ScalpMapWidget("Clean-trial average", interpolator, labels)
+            if self.show_clean_average
+            else None
         )
         self.current_map = ScalpMapWidget("Selected trial", interpolator, labels)
-        map_row.addWidget(self.clean_map, 1)
+        if self.clean_map is not None:
+            map_row.addWidget(self.clean_map, 1)
         map_row.addWidget(self.current_map, 1)
         layout.addLayout(map_row, 1)
 
@@ -354,28 +360,34 @@ class DualTopomapWidget(QtWidgets.QGroupBox):
         self.time_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.time_label.setStyleSheet("color:#9caabd;")
         layout.addWidget(self.time_label)
-        self.setMinimumWidth(410)
-        self.setMaximumWidth(600)
+        self.setMinimumWidth(410 if self.show_clean_average else 210)
+        self.setMaximumWidth(600 if self.show_clean_average else 320)
 
     def set_maps(
         self,
-        clean_values: np.ndarray,
+        clean_values: np.ndarray | None,
         current_values: np.ndarray,
         *,
         trial_number: int,
+        current_title: str | None = None,
         time_seconds: float,
         window_seconds: float,
         unit: str,
     ) -> None:
-        self.last_clean_values = np.asarray(clean_values, dtype=float).copy()
+        if clean_values is not None:
+            self.last_clean_values = np.asarray(clean_values, dtype=float).copy()
         self.last_current_values = np.asarray(current_values, dtype=float).copy()
-        self.last_clean_limit = self._symmetric_limit(self.last_clean_values)
+        if self.clean_map is not None:
+            self.last_clean_limit = self._symmetric_limit(self.last_clean_values)
         self.last_current_limit = self._symmetric_limit(self.last_current_values)
-        self.clean_map.set_values(self.last_clean_values, self.last_clean_limit, unit)
+        if self.clean_map is not None:
+            self.clean_map.set_values(
+                self.last_clean_values, self.last_clean_limit, unit
+            )
         self.current_map.set_values(
             self.last_current_values, self.last_current_limit, unit
         )
-        self.current_map.title.setText(f"Trial {trial_number}")
+        self.current_map.title.setText(current_title or f"Trial {trial_number}")
         self.time_label.setText(
             f"Centre {time_seconds * 1_000:.1f} ms  ·  "
             f"window {window_seconds * 1_000:.1f} ms"

@@ -227,3 +227,56 @@ def test_average_pen_alpha_blends_in_rendered_pixels() -> None:
     assert rendered_red[0] < rendered_red[1] < rendered_red[2]
     assert rendered_red[2] < rendered_red[3] < rendered_red[4]
     plot.close()
+
+
+def test_fieldtrip_average_has_one_cursor_driven_scalp_map(tmp_path: Path) -> None:
+    application = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    samples = np.arange(100, dtype=float)
+    dataset = fieldtrip_from_mapping(
+        {
+            "label": ["Fp1", "Cz", "O2"],
+            "fsample": 100.0,
+            "avg": np.vstack((samples, 2.0 * samples, -samples)),
+            "time": samples / 100.0,
+            "elec": {
+                "label": ["Fp1", "Cz", "O2"],
+                "chanpos": [[-0.5, 0.8, 0], [0, 0, 1], [0.4, -0.8, 0]],
+            },
+        }
+    )
+    source = DatasetViewSource(dataset)
+    layout = resolve_layout(source.channel_labels, embedded=dataset.montage_candidate)
+    window = ViewerWindow(
+        source,
+        {"dataset_kind": dataset.kind.value},
+        resolved_layout=layout,
+        initial_mode="chart",
+        initial_window_seconds=0.5,
+        visible_channels=3,
+        amplitude_spacing_uv=100.0,
+        opengl_requested=False,
+        result_path=tmp_path / "average-smoke.json",
+        automated_iterations=0,
+        quit_after_automated=False,
+    )
+
+    window.show()
+    application.processEvents()
+    assert source.segment_count == 1
+    assert not window.average_alpha_slider.isVisible()
+    assert window.topomap_panel is not None
+    assert window.topomap_panel.clean_map is None
+    assert window.topomap_panel.current_map.title.text() == "Average"
+    initial_values = window.topomap_panel.last_current_values.copy()
+
+    point = window.view_box.mapViewToScene(QtCore.QPointF(0.4, 2.0))
+    window._mouse_moved((point,))
+    application.processEvents()
+
+    assert window.hover_time_label.toPlainText() == "400.0 ms"
+    assert not np.allclose(window.topomap_panel.last_current_values, initial_values)
+    np.testing.assert_allclose(
+        window.topomap_panel.last_current_values,
+        [40.5, 81.0, -40.5],
+    )
+    window.close()

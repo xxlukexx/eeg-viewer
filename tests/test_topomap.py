@@ -89,3 +89,36 @@ def test_dual_topomap_uses_independent_symmetric_scales() -> None:
     assert widget.current_map.title.text() == "Trial 7"
     assert "125.0 ms" in widget.time_label.text()
     widget.close()
+
+
+def test_topomap_can_show_one_average_without_a_duplicate_clean_map() -> None:
+    application = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    positions = np.array(
+        [[-0.7, 0.6], [0.7, 0.6], [-0.6, -0.7], [0.6, -0.7]],
+        dtype=float,
+    )
+    widget = DualTopomapWidget(
+        positions,
+        ("Fp1", "Fp2", "O1", "O2"),
+        (0, 1, 2, 3),
+        sample_rate_hz=500.0,
+        show_clean_average=False,
+    )
+
+    widget.set_maps(
+        None,
+        np.array([-4.0, -2.0, 2.0, 4.0]),
+        trial_number=1,
+        current_title="Grand Average",
+        time_seconds=0.125,
+        window_seconds=0.02,
+        unit="native [uV]",
+    )
+    widget.show()
+    application.processEvents()
+
+    assert widget.clean_map is None
+    assert widget.current_map.title.text() == "Grand Average"
+    assert widget.current_map.image.image.shape == (128, 128, 4)
+    assert widget.minimumWidth() == 210
+    widget.close()
